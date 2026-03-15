@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Smart TV Frontend</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <main class="app-shell">
+      <div class="app-background-layer app-background-layer-a" aria-hidden="true"></div>
+      <div class="app-background-layer app-background-layer-b" aria-hidden="true"></div>
+      <div class="app-overlay-layer" aria-hidden="true"></div>
+      <header class="top-bar">
+        <h1>Library</h1>
+        <p>Use arrows or controller. Enter / X / A launches. Space or Start opens options.</p>
+      </header>
+      <div class="actions-bar">
+        <button id="settings-button" class="action-button" type="button">Menu</button>
+      </div>
+      <section id="grid" class="cover-grid" aria-label="Game grid"></section>
+      <footer class="status-bar" id="status">Ready</footer>
+
+      <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true"></div>
+      <aside id="settings-sidebar" class="settings-sidebar" aria-label="Menu sidebar">
+        <h2>Menu</h2>
+        <div class="settings-actions">
+          <section class="menu-section" aria-label="Library">
+            <h3>Library</h3>
+            <button id="menu-add-app" type="button" class="sidebar-item sidebar-nav-item">Add App</button>
+            <button id="menu-bulk-delete" type="button" class="sidebar-item sidebar-nav-item">Bulk Delete</button>
+            <button id="menu-export-library" type="button" class="sidebar-item sidebar-nav-item">Export Library</button>
+          </section>
+
+          <section class="menu-section" aria-label="Display">
+            <h3>Display</h3>
+            <button id="menu-view-mode" type="button" class="sidebar-item sidebar-nav-item">View Mode</button>
+            <button id="menu-aspect" type="button" class="sidebar-item sidebar-nav-item">Aspect: Native</button>
+          </section>
+
+          <section class="menu-section" aria-label="Audio">
+            <h3>Audio</h3>
+            <div class="sidebar-volume-block">
+            <label for="menu-volume-slider">UI Volume <span id="menu-volume-value">70%</span></label>
+            <input
+              id="menu-volume-slider"
+              class="sidebar-item sidebar-nav-item sidebar-volume-slider"
+              type="range"
+              min="0"
+              max="100"
+              step="1"
+              value="70"
+              aria-label="UI sound volume"
+            />
+            </div>
+          </section>
+
+          <section class="menu-section" aria-label="Tools">
+            <h3>Tools</h3>
+            <button id="menu-rebuild-images" type="button" class="sidebar-item sidebar-nav-item">Rebuild Images</button>
+            <button id="menu-close" type="button" class="sidebar-item sidebar-nav-item">Close Menu</button>
+          </section>
+        </div>
+      </aside>
+
+      <dialog id="add-app-dialog" class="add-dialog">
+        <form id="add-app-form" class="add-form" method="dialog">
+          <h2>Add App</h2>
+          <label for="app-name">Name</label>
+          <input id="app-name" name="app-name" type="text" maxlength="60" required />
+
+          <label for="app-path">Launch Path (.exe or .lnk)</label>
+          <div class="path-row">
+            <input id="app-path" name="app-path" type="text" placeholder="C:\\Games\\Steam\\steam.exe" required />
+            <button id="browse-app-path" type="button" class="secondary">Browse</button>
+          </div>
+
+          <label for="app-args">Launch Options (optional)</label>
+          <input id="app-args" name="app-args" type="text" placeholder="-fullscreen -bigpicture" />
+
+          <label for="app-cover-path">Cover Image (6:9, optional)</label>
+          <div class="path-row">
+            <input id="app-cover-path" name="app-cover-path" type="text" placeholder="C:\\Covers\\my-cover.jpg" />
+            <button id="browse-app-cover-path" type="button" class="secondary">Browse</button>
+          </div>
+
+          <label for="app-background-path">Background Image (16:9 or 5:4, optional)</label>
+          <div class="path-row">
+            <input id="app-background-path" name="app-background-path" type="text" placeholder="C:\\Backgrounds\\my-bg.jpg" />
+            <button id="browse-app-background-path" type="button" class="secondary">Browse</button>
+          </div>
+
+          <div class="form-actions">
+            <button id="cancel-add" type="button" class="secondary">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="rename-dialog" class="add-dialog">
+        <form id="rename-form" class="add-form" method="dialog">
+          <h2>Rename</h2>
+          <label for="rename-input">New Name</label>
+          <input id="rename-input" name="rename-input" type="text" maxlength="60" required />
+          <div class="form-actions">
+            <button id="rename-cancel" type="button" class="secondary">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="launch-options-dialog" class="add-dialog">
+        <form id="launch-options-form" class="add-form" method="dialog">
+          <h2>Launch Options</h2>
+          <label for="launch-options-input">Arguments</label>
+          <input id="launch-options-input" name="launch-options-input" type="text" placeholder="-fullscreen -d3d11" />
+          <div class="form-actions">
+            <button id="launch-options-cancel" type="button" class="secondary">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="customize-cover-dialog" class="add-dialog">
+        <form id="customize-cover-form" class="add-form" method="dialog">
+          <h2>Customize Media</h2>
+          <label for="cover-path-input">Cover Image (6:9)</label>
+          <div class="path-row">
+            <input id="cover-path-input" name="cover-path-input" type="text" placeholder="C:\\Covers\\my-cover.jpg" />
+            <button id="browse-cover-path" type="button" class="secondary">Browse</button>
+          </div>
+          <label for="background-path-input">Background Image (16:9 or 5:4)</label>
+          <div class="path-row">
+            <input id="background-path-input" name="background-path-input" type="text" placeholder="C:\\Backgrounds\\my-bg.jpg" />
+            <button id="browse-background-path" type="button" class="secondary">Browse</button>
+          </div>
+          <div class="form-actions">
+            <button id="clear-cover" type="button" class="secondary">Clear</button>
+            <button id="clear-background" type="button" class="secondary">Clear Background</button>
+            <button id="customize-cover-cancel" type="button" class="secondary">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="app-options-dialog" class="options-dialog">
+        <div class="options-content">
+          <h2 id="options-title">App Options</h2>
+          <div class="options-list">
+            <button type="button" class="option-button" data-action="launch">Launch</button>
+            <button type="button" class="option-button" data-action="launch-options">Launch Options</button>
+            <button type="button" class="option-button" data-action="rename">Rename</button>
+            <button type="button" class="option-button" data-action="customize">Customize</button>
+            <button type="button" class="option-button option-danger" data-action="delete">Delete</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="delete-confirm-dialog" class="confirm-dialog">
+        <div class="confirm-content">
+          <h2>Delete Entry</h2>
+          <p id="delete-confirm-text">Delete this app from library?</p>
+          <div class="confirm-actions">
+            <button type="button" id="delete-cancel-button" class="confirm-button">Cancel</button>
+            <button type="button" id="delete-accept-button" class="confirm-button confirm-danger">Delete</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="view-mode-dialog" class="confirm-dialog">
+        <div class="confirm-content">
+          <h2>View Mode</h2>
+          <p>Select your preferred launcher layout.</p>
+          <div class="confirm-actions">
+            <button type="button" id="view-mode-grid-button" class="confirm-button">Grid</button>
+            <button type="button" id="view-mode-carousel-button" class="confirm-button">Carousel</button>
+            <button type="button" id="view-mode-cancel-button" class="confirm-button">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+
+      <dialog id="bulk-delete-dialog" class="confirm-dialog">
+        <div class="confirm-content bulk-delete-content">
+          <h2>Bulk Delete</h2>
+          <p>Select multiple apps and remove them from your library.</p>
+          <div id="bulk-delete-list" class="bulk-delete-list"></div>
+          <div class="confirm-actions bulk-delete-actions">
+            <button type="button" id="bulk-select-all-button" class="confirm-button">Select All</button>
+            <button type="button" id="bulk-clear-selection-button" class="confirm-button">Clear</button>
+            <button type="button" id="bulk-delete-selected-button" class="confirm-button confirm-danger">Delete Selected</button>
+            <button type="button" id="bulk-delete-cancel-button" class="confirm-button">Cancel</button>
+          </div>
+        </div>
+      </dialog>
+    </main>
+  </body>
+</html>
