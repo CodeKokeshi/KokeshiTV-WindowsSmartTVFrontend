@@ -47,15 +47,19 @@ This is useful if you want a living-room style interface on a Windows machine wi
 
 Put media here: `media/`
 
-Add your screenshots to the `media/` folder, then reference them below.
+### 16:9 Samples
 
-Example markdown:
+![16:9 Sample 01](media/16%20to%209%20Aspect%20Ratio%20Sample%2001.png)
+![16:9 Sample 02](media/16%20to%209%20Aspect%20Ratio%20Sample%2002.png)
 
-```md
-![Home Screen](media/home-screen.png)
-![Menu](media/menu.png)
-![Bulk Delete](media/bulk-delete.png)
-```
+### Menu
+
+![Menu](media/Menu.png)
+
+### 5:4 Samples
+
+![5:4 Sample 01](media/5%20to%204%20Aspect%20Ratio%20Sample%2001.png)
+![5:4 Sample 02](media/5%20to%204%20Aspect%20Ratio%20Sample%2002.png)
 
 ## Setup (Development)
 
