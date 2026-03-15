@@ -37,6 +37,8 @@ type AspectPreset = {
 const STORAGE_KEY = "smarttv.apps.v1";
 const VIEW_MODE_STORAGE_KEY = "smarttv.view-mode.v1";
 const SOUND_VOLUME_STORAGE_KEY = "smarttv.ui-volume.v1";
+const APP_TITLE_STORAGE_KEY = "smarttv.app-title.v1";
+const DEFAULT_APP_TITLE = "Library";
 const MAX_PER_ROW = 6;
 const DEFAULT_BG_A = "#0b1f2e";
 const DEFAULT_BG_B = "#162838";
@@ -57,11 +59,13 @@ let selectedIndex = 0;
 
 let gridEl: HTMLElement | null = null;
 let statusEl: HTMLElement | null = null;
+let appTitleEl: HTMLElement | null = null;
 let settingsButtonEl: HTMLButtonElement | null = null;
 let sidebarOverlayEl: HTMLElement | null = null;
 let menuAddAppEl: HTMLButtonElement | null = null;
 let menuBulkDeleteEl: HTMLButtonElement | null = null;
 let menuExportLibraryEl: HTMLButtonElement | null = null;
+let menuCustomizeTitleEl: HTMLButtonElement | null = null;
 let menuViewModeEl: HTMLButtonElement | null = null;
 let menuAspectEl: HTMLButtonElement | null = null;
 let menuRebuildImagesEl: HTMLButtonElement | null = null;
@@ -82,6 +86,9 @@ let browseAppBackgroundPathButtonEl: HTMLButtonElement | null = null;
 let renameDialogEl: HTMLDialogElement | null = null;
 let renameFormEl: HTMLFormElement | null = null;
 let renameInputEl: HTMLInputElement | null = null;
+let titleDialogEl: HTMLDialogElement | null = null;
+let titleFormEl: HTMLFormElement | null = null;
+let titleInputEl: HTMLInputElement | null = null;
 let launchOptionsDialogEl: HTMLDialogElement | null = null;
 let launchOptionsFormEl: HTMLFormElement | null = null;
 let launchOptionsInputEl: HTMLInputElement | null = null;
@@ -422,8 +429,29 @@ function loadViewMode(): ViewMode {
   return raw === "carousel" ? "carousel" : "grid";
 }
 
+function loadAppTitle(): string {
+  const raw = localStorage.getItem(APP_TITLE_STORAGE_KEY);
+  const normalized = raw?.trim() ?? "";
+  return normalized || DEFAULT_APP_TITLE;
+}
+
 function saveViewMode(): void {
   localStorage.setItem(VIEW_MODE_STORAGE_KEY, viewMode);
+}
+
+function saveAppTitle(title: string): void {
+  localStorage.setItem(APP_TITLE_STORAGE_KEY, title);
+}
+
+function applyAppTitle(title: string, shouldSave = true): void {
+  const normalized = title.trim() || DEFAULT_APP_TITLE;
+  if (appTitleEl) {
+    appTitleEl.textContent = normalized;
+  }
+
+  if (shouldSave) {
+    saveAppTitle(normalized);
+  }
 }
 
 function buildBalancedRows(total: number): RowInfo[] {
@@ -1835,6 +1863,23 @@ function closeRenameDialog(): void {
   playUiSound("back");
 }
 
+function openTitleDialog(): void {
+  if (!titleDialogEl || !titleInputEl) {
+    return;
+  }
+
+  titleInputEl.value = (appTitleEl?.textContent ?? DEFAULT_APP_TITLE).trim();
+  titleDialogEl.showModal();
+  window.setTimeout(() => titleInputEl?.focus(), 0);
+  playUiSound("open");
+}
+
+function closeTitleDialog(): void {
+  titleDialogEl?.close();
+  titleFormEl?.reset();
+  playUiSound("back");
+}
+
 function openLaunchOptionsDialog(): void {
   const app = getSelectedApp();
   if (!app || !launchOptionsDialogEl || !launchOptionsInputEl) {
@@ -2276,7 +2321,13 @@ function onKeyDown(event: KeyboardEvent): void {
     return;
   }
 
-  if (addDialogEl?.open || renameDialogEl?.open || launchOptionsDialogEl?.open || customizeCoverDialogEl?.open) {
+  if (
+    addDialogEl?.open
+    || renameDialogEl?.open
+    || titleDialogEl?.open
+    || launchOptionsDialogEl?.open
+    || customizeCoverDialogEl?.open
+  ) {
     return;
   }
 
@@ -2498,6 +2549,7 @@ function pollGamepad(): void {
     pad
     && !addDialogEl?.open
     && !renameDialogEl?.open
+    && !titleDialogEl?.open
     && !launchOptionsDialogEl?.open
     && !customizeCoverDialogEl?.open
   ) {
@@ -2736,6 +2788,7 @@ window.addEventListener("DOMContentLoaded", () => {
   appShellEl = document.querySelector(".app-shell");
   appBackgroundLayerAEl = document.querySelector(".app-background-layer-a");
   appBackgroundLayerBEl = document.querySelector(".app-background-layer-b");
+  appTitleEl = document.querySelector(".top-bar h1");
   gridEl = document.querySelector("#grid");
   statusEl = document.querySelector("#status");
   settingsButtonEl = document.querySelector("#settings-button");
@@ -2743,6 +2796,7 @@ window.addEventListener("DOMContentLoaded", () => {
   menuAddAppEl = document.querySelector("#menu-add-app");
   menuBulkDeleteEl = document.querySelector("#menu-bulk-delete");
   menuExportLibraryEl = document.querySelector("#menu-export-library");
+  menuCustomizeTitleEl = document.querySelector("#menu-customize-title");
   menuViewModeEl = document.querySelector("#menu-view-mode");
   menuAspectEl = document.querySelector("#menu-aspect");
   menuRebuildImagesEl = document.querySelector("#menu-rebuild-images");
@@ -2763,6 +2817,9 @@ window.addEventListener("DOMContentLoaded", () => {
   renameDialogEl = document.querySelector("#rename-dialog");
   renameFormEl = document.querySelector("#rename-form");
   renameInputEl = document.querySelector("#rename-input");
+  titleDialogEl = document.querySelector("#title-dialog");
+  titleFormEl = document.querySelector("#title-form");
+  titleInputEl = document.querySelector("#title-input");
   launchOptionsDialogEl = document.querySelector("#launch-options-dialog");
   launchOptionsFormEl = document.querySelector("#launch-options-form");
   launchOptionsInputEl = document.querySelector("#launch-options-input");
@@ -2795,6 +2852,7 @@ window.addEventListener("DOMContentLoaded", () => {
   apps = loadApps();
   viewMode = loadViewMode();
   uiVolumePercent = loadUiVolumePercent();
+  applyAppTitle(loadAppTitle(), false);
   applyUiVolumePercent(uiVolumePercent, false);
   if (gridEl) {
     gridEl.classList.toggle("view-grid", viewMode === "grid");
@@ -2825,6 +2883,11 @@ window.addEventListener("DOMContentLoaded", () => {
   menuExportLibraryEl?.addEventListener("click", () => {
     closeSettingsSidebar();
     void exportLibraryBundle();
+  });
+
+  menuCustomizeTitleEl?.addEventListener("click", () => {
+    closeSettingsSidebar();
+    openTitleDialog();
   });
 
   menuViewModeEl?.addEventListener("click", () => {
@@ -2944,6 +3007,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   document.querySelector("#rename-cancel")?.addEventListener("click", () => {
     closeRenameDialog();
+  });
+
+  document.querySelector("#title-cancel")?.addEventListener("click", () => {
+    closeTitleDialog();
   });
 
   document.querySelector("#launch-options-cancel")?.addEventListener("click", () => {
@@ -3081,6 +3148,23 @@ window.addEventListener("DOMContentLoaded", () => {
     closeRenameDialog();
   });
 
+  titleFormEl?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const nextTitle = titleInputEl?.value.trim() ?? "";
+    if (!nextTitle) {
+      closeTitleDialog();
+      return;
+    }
+
+    applyAppTitle(nextTitle);
+    if (statusEl) {
+      statusEl.textContent = `Title updated: ${nextTitle}`;
+    }
+    playUiSound("select");
+    titleDialogEl?.close();
+    titleFormEl?.reset();
+  });
+
   launchOptionsFormEl?.addEventListener("submit", (event) => {
     event.preventDefault();
     const app = getSelectedApp();
@@ -3168,6 +3252,10 @@ window.addEventListener("DOMContentLoaded", () => {
 
   renameDialogEl?.addEventListener("close", () => {
     renameFormEl?.reset();
+  });
+
+  titleDialogEl?.addEventListener("close", () => {
+    titleFormEl?.reset();
   });
 
   launchOptionsDialogEl?.addEventListener("close", () => {

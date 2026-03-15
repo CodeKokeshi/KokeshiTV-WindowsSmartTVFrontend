@@ -36,6 +36,7 @@
 
           <section class="menu-section" aria-label="Display">
             <h3>Display</h3>
+            <button id="menu-customize-title" type="button" class="sidebar-item sidebar-nav-item">Customize Title</button>
             <button id="menu-view-mode" type="button" class="sidebar-item sidebar-nav-item">View Mode</button>
             <button id="menu-aspect" type="button" class="sidebar-item sidebar-nav-item">Aspect: Native</button>
           </section>
@@ -106,6 +107,18 @@
           <input id="rename-input" name="rename-input" type="text" maxlength="60" required />
           <div class="form-actions">
             <button id="rename-cancel" type="button" class="secondary">Cancel</button>
+            <button type="submit">Save</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog id="title-dialog" class="add-dialog">
+        <form id="title-form" class="add-form" method="dialog">
+          <h2>Customize Title</h2>
+          <label for="title-input">Top Header Title</label>
+          <input id="title-input" name="title-input" type="text" maxlength="48" placeholder="Smart TV" required />
+          <div class="form-actions">
+            <button id="title-cancel" type="button" class="secondary">Cancel</button>
             <button type="submit">Save</button>
           </div>
         </form>
