@@ -43,6 +43,20 @@ This is useful if you want a living-room style interface on a Windows machine wi
 - Dedicated kiosk-style launcher for living room setups
 - Personal Smart TV replacement interface on unused PC hardware
 
+## Screenshots
+
+Put media here: `media/`
+
+Add your screenshots to the `media/` folder, then reference them below.
+
+Example markdown:
+
+```md
+![Home Screen](media/home-screen.png)
+![Menu](media/menu.png)
+![Bulk Delete](media/bulk-delete.png)
+```
+
 ## Setup (Development)
 
 ### Prerequisites
