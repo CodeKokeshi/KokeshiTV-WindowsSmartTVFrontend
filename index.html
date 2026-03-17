@@ -21,48 +21,67 @@
         <button id="settings-button" class="action-button" type="button">Menu</button>
       </div>
       <section id="grid" class="cover-grid" aria-label="Game grid"></section>
-      <footer class="status-bar" id="status">Ready</footer>
+      <footer class="status-bar">
+        <span id="status">Ready</span>
+        <span id="usage-time" aria-live="polite">Usage Time: 0m</span>
+      </footer>
 
       <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true"></div>
       <aside id="settings-sidebar" class="settings-sidebar" aria-label="Menu sidebar">
         <h2>Menu</h2>
-        <div class="settings-actions">
-          <section class="menu-section" aria-label="Library">
-            <h3>Library</h3>
-            <button id="menu-add-app" type="button" class="sidebar-item sidebar-nav-item">Add App</button>
-            <button id="menu-bulk-delete" type="button" class="sidebar-item sidebar-nav-item">Bulk Delete</button>
-            <button id="menu-export-library" type="button" class="sidebar-item sidebar-nav-item">Export Library</button>
+        <div class="settings-panels">
+          <section id="settings-expansion" class="settings-expansion" aria-label="Menu actions">
+            <section class="menu-section sidebar-expansion-panel" data-expansion-panel="library" aria-label="Library actions">
+              <h3>Library</h3>
+              <button id="menu-add-app" type="button" class="sidebar-item sidebar-expansion-item">Add App</button>
+              <button id="menu-bulk-delete" type="button" class="sidebar-item sidebar-expansion-item">Bulk Delete</button>
+              <button id="menu-export-library" type="button" class="sidebar-item sidebar-expansion-item">Export Library</button>
+            </section>
+
+            <section class="menu-section sidebar-expansion-panel" data-expansion-panel="display" aria-label="Display actions">
+              <h3>Display</h3>
+              <button id="menu-customize-title" type="button" class="sidebar-item sidebar-expansion-item">Customize Title</button>
+              <button id="menu-view-mode" type="button" class="sidebar-item sidebar-expansion-item">View Mode</button>
+              <button id="menu-aspect" type="button" class="sidebar-item sidebar-expansion-item">Aspect: Native</button>
+            </section>
+
+            <section class="menu-section sidebar-expansion-panel" data-expansion-panel="audio" aria-label="Audio actions">
+              <h3>Audio</h3>
+              <div class="sidebar-volume-block">
+              <label for="menu-volume-slider">UI Volume <span id="menu-volume-value">70%</span></label>
+              <input
+                id="menu-volume-slider"
+                class="sidebar-item sidebar-expansion-item sidebar-volume-slider"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="70"
+                aria-label="UI sound volume"
+              />
+              </div>
+            </section>
+
+            <section class="menu-section sidebar-expansion-panel" data-expansion-panel="tools" aria-label="Tools actions">
+              <h3>Tools</h3>
+              <button id="menu-rebuild-images" type="button" class="sidebar-item sidebar-expansion-item">Rebuild Images</button>
+              <button id="menu-close" type="button" class="sidebar-item sidebar-expansion-item">Close Menu</button>
+            </section>
+
+            <section class="menu-section sidebar-expansion-panel" data-expansion-panel="power" aria-label="Power actions">
+              <h3>Power</h3>
+              <button id="menu-restart-system" type="button" class="sidebar-item sidebar-expansion-item">Restart System</button>
+              <button id="menu-shutdown-system" type="button" class="sidebar-item sidebar-expansion-item sidebar-danger">Shut Down System</button>
+            </section>
           </section>
 
-          <section class="menu-section" aria-label="Display">
-            <h3>Display</h3>
-            <button id="menu-customize-title" type="button" class="sidebar-item sidebar-nav-item">Customize Title</button>
-            <button id="menu-view-mode" type="button" class="sidebar-item sidebar-nav-item">View Mode</button>
-            <button id="menu-aspect" type="button" class="sidebar-item sidebar-nav-item">Aspect: Native</button>
-          </section>
-
-          <section class="menu-section" aria-label="Audio">
-            <h3>Audio</h3>
-            <div class="sidebar-volume-block">
-            <label for="menu-volume-slider">UI Volume <span id="menu-volume-value">70%</span></label>
-            <input
-              id="menu-volume-slider"
-              class="sidebar-item sidebar-nav-item sidebar-volume-slider"
-              type="range"
-              min="0"
-              max="100"
-              step="1"
-              value="70"
-              aria-label="UI sound volume"
-            />
-            </div>
-          </section>
-
-          <section class="menu-section" aria-label="Tools">
-            <h3>Tools</h3>
-            <button id="menu-rebuild-images" type="button" class="sidebar-item sidebar-nav-item">Rebuild Images</button>
-            <button id="menu-close" type="button" class="sidebar-item sidebar-nav-item">Close Menu</button>
-          </section>
+          <nav class="settings-actions" aria-label="Menu buttons">
+            <button type="button" class="sidebar-item sidebar-main-item" data-expansion-key="library">Library</button>
+            <button type="button" class="sidebar-item sidebar-main-item" data-expansion-key="display">Display</button>
+            <button type="button" class="sidebar-item sidebar-main-item" data-expansion-key="audio">Audio</button>
+            <button type="button" class="sidebar-item sidebar-main-item" data-expansion-key="tools">Tools</button>
+            <button type="button" class="sidebar-item sidebar-main-item" data-expansion-key="power">Power</button>
+          </nav>
         </div>
       </aside>
 

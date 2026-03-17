@@ -10,6 +10,11 @@ type LauncherApp = {
   backgroundPath: string;
   coverSnapshotDataUrl: string;
   backgroundSnapshotDataUrl: string;
+  usageSeconds: number;
+};
+
+type LaunchAppResult = {
+  pid: number;
 };
 
 type ShortcutResolution = {
@@ -28,6 +33,8 @@ type RowInfo = {
 
 type NavigationTarget = "grid" | "add-button";
 type ViewMode = "grid" | "carousel";
+type SidebarFocusZone = "main" | "expansion";
+type SidebarMenuKey = "library" | "display" | "audio" | "tools" | "power";
 
 type AspectPreset = {
   label: string;
@@ -59,6 +66,7 @@ let selectedIndex = 0;
 
 let gridEl: HTMLElement | null = null;
 let statusEl: HTMLElement | null = null;
+let usageTimeEl: HTMLElement | null = null;
 let appTitleEl: HTMLElement | null = null;
 let settingsButtonEl: HTMLButtonElement | null = null;
 let sidebarOverlayEl: HTMLElement | null = null;
@@ -70,9 +78,13 @@ let menuViewModeEl: HTMLButtonElement | null = null;
 let menuAspectEl: HTMLButtonElement | null = null;
 let menuRebuildImagesEl: HTMLButtonElement | null = null;
 let menuCloseEl: HTMLButtonElement | null = null;
+let menuRestartSystemEl: HTMLButtonElement | null = null;
+let menuShutdownSystemEl: HTMLButtonElement | null = null;
 let menuVolumeSliderEl: HTMLInputElement | null = null;
 let menuVolumeValueEl: HTMLElement | null = null;
-let sidebarItems: HTMLElement[] = [];
+let sidebarMainItems: HTMLButtonElement[] = [];
+let sidebarExpansionPanels: HTMLElement[] = [];
+let sidebarExpansionItems: HTMLElement[] = [];
 let addDialogEl: HTMLDialogElement | null = null;
 let addFormEl: HTMLFormElement | null = null;
 let appNameInputEl: HTMLInputElement | null = null;
@@ -139,7 +151,11 @@ let backgroundRequestToken = 0;
 let aspectPresetIndex = 0;
 let activeBackgroundLayerIndex = 0;
 let backgroundCleanupTimerId: number | null = null;
-let selectedSidebarIndex = 0;
+let selectedSidebarMainIndex = 0;
+let selectedSidebarExpansionIndex = 0;
+let sidebarFocusZone: SidebarFocusZone = "main";
+let activeSidebarMenuKey: SidebarMenuKey | null = null;
+let sidebarVolumeControlLocked = false;
 
 let previousActionPressed = false;
 let previousBackPressed = false;
@@ -153,9 +169,14 @@ let audioMasterGain: GainNode | null = null;
 let uiVolumePercent = DEFAULT_SOUND_VOLUME_PERCENT;
 let lastMoveSoundAt = 0;
 let fastNavigationUntil = 0;
+let activeUsageAppId: string | null = null;
+let activeUsagePid: number | null = null;
+let activeUsageStartedAtMs = 0;
+let usagePollTimerId: number | null = null;
 
 const MOVE_SOUND_COOLDOWN_MS = 260;
 const FAST_NAV_WINDOW_MS = 200;
+const SIDEBAR_MENU_ORDER: SidebarMenuKey[] = ["library", "display", "audio", "tools", "power"];
 
 function markFastNavigationWindow(): void {
   fastNavigationUntil = performance.now() + FAST_NAV_WINDOW_MS;
@@ -227,13 +248,56 @@ function nudgeUiVolume(delta: number): boolean {
   return uiVolumePercent !== previous;
 }
 
-function getSelectedSidebarItem(): HTMLElement | null {
-  return sidebarItems[selectedSidebarIndex] ?? null;
+function getSelectedSidebarMainItem(): HTMLButtonElement | null {
+  return sidebarMainItems[selectedSidebarMainIndex] ?? null;
+}
+
+function getSelectedSidebarExpansionItem(): HTMLElement | null {
+  return sidebarExpansionItems[selectedSidebarExpansionIndex] ?? null;
+}
+
+function toSidebarMenuKey(value: string | undefined): SidebarMenuKey {
+  return SIDEBAR_MENU_ORDER.includes(value as SidebarMenuKey) ? (value as SidebarMenuKey) : "library";
+}
+
+function refreshActiveSidebarExpansionItems(): void {
+  const activePanel = sidebarExpansionPanels.find((panel) => panel.classList.contains("is-active")) ?? null;
+  sidebarExpansionItems = activePanel
+    ? Array.from(activePanel.querySelectorAll<HTMLElement>(".sidebar-expansion-item"))
+    : [];
+
+  if (sidebarExpansionItems.length === 0) {
+    selectedSidebarExpansionIndex = 0;
+    return;
+  }
+
+  selectedSidebarExpansionIndex = Math.max(0, Math.min(selectedSidebarExpansionIndex, sidebarExpansionItems.length - 1));
+}
+
+function setActiveSidebarMenu(key: SidebarMenuKey | null): void {
+  if (activeSidebarMenuKey !== key || key === null) {
+    setSidebarVolumeControlLocked(false);
+  }
+  activeSidebarMenuKey = key;
+
+  sidebarExpansionPanels.forEach((panel) => {
+    panel.classList.toggle("is-active", key !== null && panel.dataset.expansionPanel === key);
+  });
+
+  refreshActiveSidebarExpansionItems();
 }
 
 function isVolumeSliderSelected(): boolean {
-  const selected = getSelectedSidebarItem();
+  const selected = getSelectedSidebarExpansionItem();
   return selected === menuVolumeSliderEl;
+}
+
+function setSidebarVolumeControlLocked(locked: boolean): void {
+  sidebarVolumeControlLocked = locked;
+  menuVolumeSliderEl?.classList.toggle("is-locked", locked);
+  if (statusEl && isVolumeSliderSelected()) {
+    statusEl.textContent = locked ? `UI volume locked. Use Left/Right to adjust (${uiVolumePercent}%).` : "UI volume unlocked.";
+  }
 }
 
 function getAudioContextCtor(): typeof AudioContext | null {
@@ -390,6 +454,99 @@ function isShortcutPath(path: string): boolean {
   return /\.lnk$/i.test(path.trim());
 }
 
+function formatUsageDuration(secondsRaw: number): string {
+  const totalSeconds = Math.max(0, Math.floor(secondsRaw));
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (hours > 0) {
+    return `${hours}h ${minutes}m`;
+  }
+  return `${minutes}m`;
+}
+
+function updateUsageTimeDisplay(): void {
+  if (!usageTimeEl) {
+    return;
+  }
+
+  const app = getSelectedApp();
+  if (!app) {
+    usageTimeEl.textContent = "Usage Time: 0m";
+    return;
+  }
+
+  let total = app.usageSeconds;
+  if (activeUsageAppId === app.id && activeUsageStartedAtMs > 0) {
+    total += Math.floor((Date.now() - activeUsageStartedAtMs) / 1000);
+  }
+
+  usageTimeEl.textContent = `Usage Time: ${formatUsageDuration(total)}`;
+}
+
+function clearUsagePollTimer(): void {
+  if (usagePollTimerId !== null) {
+    clearInterval(usagePollTimerId);
+    usagePollTimerId = null;
+  }
+}
+
+async function finalizeActiveUsageSession(): Promise<void> {
+  if (!activeUsageAppId || activeUsageStartedAtMs <= 0) {
+    clearUsagePollTimer();
+    activeUsageAppId = null;
+    activeUsagePid = null;
+    activeUsageStartedAtMs = 0;
+    updateUsageTimeDisplay();
+    return;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - activeUsageStartedAtMs) / 1000));
+  const app = apps.find((candidate) => candidate.id === activeUsageAppId);
+  if (app && elapsedSeconds > 0) {
+    app.usageSeconds += elapsedSeconds;
+    saveApps();
+  }
+
+  clearUsagePollTimer();
+  activeUsageAppId = null;
+  activeUsagePid = null;
+  activeUsageStartedAtMs = 0;
+  updateUsageTimeDisplay();
+}
+
+async function pollActiveUsageProcess(): Promise<void> {
+  if (!activeUsageAppId || !activeUsagePid) {
+    return;
+  }
+
+  try {
+    const running = await invoke<boolean>("is_process_running", { pid: activeUsagePid });
+    if (!running) {
+      await finalizeActiveUsageSession();
+    } else {
+      updateUsageTimeDisplay();
+    }
+  } catch {
+    // If process checks fail, keep session until next successful check or app restart.
+  }
+}
+
+function startUsageSession(appId: string, pid: number): void {
+  void finalizeActiveUsageSession();
+
+  activeUsageAppId = appId;
+  activeUsagePid = pid;
+  activeUsageStartedAtMs = Date.now();
+
+  clearUsagePollTimer();
+  usagePollTimerId = window.setInterval(() => {
+    void pollActiveUsageProcess();
+  }, 1500);
+
+  updateUsageTimeDisplay();
+}
+
 function loadApps(): LauncherApp[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -413,7 +570,10 @@ function loadApps(): LauncherApp[] {
         backgroundPath: typeof item.backgroundPath === "string" ? item.backgroundPath : "",
         coverSnapshotDataUrl: typeof item.coverSnapshotDataUrl === "string" ? item.coverSnapshotDataUrl : "",
         backgroundSnapshotDataUrl:
-          typeof item.backgroundSnapshotDataUrl === "string" ? item.backgroundSnapshotDataUrl : ""
+          typeof item.backgroundSnapshotDataUrl === "string" ? item.backgroundSnapshotDataUrl : "",
+        usageSeconds: typeof item.usageSeconds === "number" && Number.isFinite(item.usageSeconds)
+          ? Math.max(0, Math.floor(item.usageSeconds))
+          : 0
       }));
   } catch {
     return [];
@@ -1244,7 +1404,10 @@ function openSettingsSidebar(): void {
   if (gridEl) {
     gridEl.scrollLeft = 0;
   }
-  selectedSidebarIndex = 0;
+  selectedSidebarMainIndex = 0;
+  selectedSidebarExpansionIndex = 0;
+  sidebarFocusZone = "main";
+  setActiveSidebarMenu(null);
   applySidebarSelection();
   if (statusEl) {
     statusEl.textContent = "Menu open.";
@@ -1258,13 +1421,15 @@ function openSettingsSidebar(): void {
 function closeSettingsSidebar(): void {
   const wasOpen = appShellEl?.classList.contains("sidebar-open") ?? false;
   appShellEl?.classList.remove("sidebar-open");
+  setSidebarVolumeControlLocked(false);
   if (appShellEl) {
     appShellEl.scrollLeft = 0;
   }
   if (gridEl) {
     gridEl.scrollLeft = 0;
   }
-  sidebarItems.forEach((item) => item.classList.remove("sidebar-selected"));
+  sidebarMainItems.forEach((item) => item.classList.remove("sidebar-selected"));
+  sidebarExpansionItems.forEach((item) => item.classList.remove("sidebar-selected"));
 
   if (wasOpen) {
     playUiSound("back");
@@ -1280,37 +1445,109 @@ function toggleSettingsSidebar(): void {
 }
 
 function applySidebarSelection(): void {
-  if (sidebarItems.length === 0) {
+  if (sidebarMainItems.length === 0) {
     return;
   }
 
-  selectedSidebarIndex = Math.max(0, Math.min(selectedSidebarIndex, sidebarItems.length - 1));
+  selectedSidebarMainIndex = Math.max(0, Math.min(selectedSidebarMainIndex, sidebarMainItems.length - 1));
+  refreshActiveSidebarExpansionItems();
 
-  sidebarItems.forEach((item, index) => {
-    const isSelected = index === selectedSidebarIndex;
-    item.classList.toggle("sidebar-selected", isSelected);
-    if (isSelected) {
-      focusWithoutScroll(item);
-    }
+  sidebarMainItems.forEach((item, index) => {
+    item.classList.toggle("sidebar-selected", index === selectedSidebarMainIndex);
   });
+
+  sidebarExpansionItems.forEach((item, index) => {
+    item.classList.toggle("sidebar-selected", index === selectedSidebarExpansionIndex);
+  });
+
+  if (sidebarFocusZone === "main") {
+    focusWithoutScroll(getSelectedSidebarMainItem());
+  } else {
+    if (sidebarExpansionItems.length === 0) {
+      sidebarFocusZone = "main";
+      focusWithoutScroll(getSelectedSidebarMainItem());
+      return;
+    }
+    focusWithoutScroll(getSelectedSidebarExpansionItem());
+  }
 }
 
 function moveSidebarSelection(delta: number): void {
-  if (sidebarItems.length === 0) {
+  if (sidebarFocusZone === "main") {
+    if (sidebarMainItems.length === 0) {
+      return;
+    }
+
+    const previousIndex = selectedSidebarMainIndex;
+    selectedSidebarMainIndex = (selectedSidebarMainIndex + delta + sidebarMainItems.length) % sidebarMainItems.length;
+    if (selectedSidebarMainIndex !== previousIndex && activeSidebarMenuKey !== null) {
+      setActiveSidebarMenu(null);
+      selectedSidebarExpansionIndex = 0;
+    }
+    applySidebarSelection();
+    if (selectedSidebarMainIndex !== previousIndex) {
+      playUiSound("move");
+    }
     return;
   }
 
-  const previousIndex = selectedSidebarIndex;
-  selectedSidebarIndex = (selectedSidebarIndex + delta + sidebarItems.length) % sidebarItems.length;
+  if (sidebarVolumeControlLocked) {
+    return;
+  }
+
+  if (sidebarExpansionItems.length === 0) {
+    return;
+  }
+
+  const previousIndex = selectedSidebarExpansionIndex;
+  selectedSidebarExpansionIndex = (selectedSidebarExpansionIndex + delta + sidebarExpansionItems.length) % sidebarExpansionItems.length;
   applySidebarSelection();
-  if (selectedSidebarIndex !== previousIndex) {
+  if (selectedSidebarExpansionIndex !== previousIndex) {
     playUiSound("move");
   }
 }
 
+function moveSidebarFocusToZone(zone: SidebarFocusZone): void {
+  if (sidebarFocusZone === zone) {
+    return;
+  }
+
+  if (zone === "expansion" && sidebarExpansionItems.length === 0) {
+    const key = toSidebarMenuKey(getSelectedSidebarMainItem()?.dataset.expansionKey);
+    setActiveSidebarMenu(key);
+    selectedSidebarExpansionIndex = 0;
+  }
+
+  sidebarFocusZone = zone;
+  if (zone === "main") {
+    setSidebarVolumeControlLocked(false);
+  }
+  applySidebarSelection();
+  playUiSound("move");
+}
+
 function activateSidebarSelection(): void {
-  const item = getSelectedSidebarItem();
+  if (sidebarFocusZone === "main") {
+    const item = getSelectedSidebarMainItem();
+    if (!item) {
+      return;
+    }
+
+    const key = toSidebarMenuKey(item.dataset.expansionKey);
+    setActiveSidebarMenu(key);
+    sidebarFocusZone = "expansion";
+    selectedSidebarExpansionIndex = 0;
+    applySidebarSelection();
+    return;
+  }
+
+  const item = getSelectedSidebarExpansionItem();
   if (!item) {
+    return;
+  }
+
+  if (item === menuVolumeSliderEl) {
+    setSidebarVolumeControlLocked(!sidebarVolumeControlLocked);
     return;
   }
 
@@ -1461,6 +1698,8 @@ function applySelection(): void {
     statusEl.textContent = `Focused: ${apps[selectedIndex].name}`;
   }
 
+  updateUsageTimeDisplay();
+
   void applyFocusedBackground();
 }
 
@@ -1474,8 +1713,11 @@ async function activateSelected(): Promise<void> {
   statusEl.textContent = `Launching: ${app.name}`;
 
   try {
-    await invoke("launch_app", { path: app.launchPath, args: app.launchArgs });
+    const launched = await invoke<LaunchAppResult>("launch_app", { path: app.launchPath, args: app.launchArgs });
     statusEl.textContent = `Launched: ${app.name}`;
+    if (launched.pid > 0) {
+      startUsageSession(app.id, launched.pid);
+    }
   } catch (error) {
     playUiSound("error");
     statusEl.textContent = `Failed to launch ${app.name}`;
@@ -1487,6 +1729,10 @@ async function deleteSelectedApp(): Promise<void> {
   const app = getSelectedApp();
   if (!app) {
     return;
+  }
+
+  if (activeUsageAppId === app.id) {
+    await finalizeActiveUsageSession();
   }
 
   apps.splice(selectedIndex, 1);
@@ -1668,6 +1914,11 @@ async function deleteBulkSelectedApps(): Promise<void> {
   }
 
   const beforeCount = apps.length;
+
+  if (activeUsageAppId && bulkDeleteSelectedAppIds.has(activeUsageAppId)) {
+    await finalizeActiveUsageSession();
+  }
+
   const nextApps = apps.filter((app) => !bulkDeleteSelectedAppIds.has(app.id));
   const removedCount = beforeCount - nextApps.length;
 
@@ -1782,6 +2033,38 @@ async function exportLibraryBundle(): Promise<void> {
     console.error(error);
     if (statusEl) {
       statusEl.textContent = "Library export failed.";
+    }
+    playUiSound("error");
+  }
+}
+
+async function restartSystem(): Promise<void> {
+  try {
+    if (statusEl) {
+      statusEl.textContent = "Restarting system...";
+    }
+    playUiSound("select");
+    await invoke("restart_system");
+  } catch (error) {
+    console.error(error);
+    if (statusEl) {
+      statusEl.textContent = "Failed to restart system.";
+    }
+    playUiSound("error");
+  }
+}
+
+async function shutdownSystem(): Promise<void> {
+  try {
+    if (statusEl) {
+      statusEl.textContent = "Shutting down system...";
+    }
+    playUiSound("select");
+    await invoke("shutdown_system");
+  } catch (error) {
+    console.error(error);
+    if (statusEl) {
+      statusEl.textContent = "Failed to shut down system.";
     }
     playUiSound("error");
   }
@@ -2186,7 +2469,8 @@ function addApp(
     coverPath: coverPath.trim(),
     backgroundPath: backgroundPath.trim(),
     coverSnapshotDataUrl: coverSnapshotDataUrl.trim(),
-    backgroundSnapshotDataUrl: backgroundSnapshotDataUrl.trim()
+    backgroundSnapshotDataUrl: backgroundSnapshotDataUrl.trim(),
+    usageSeconds: 0
   };
 
   apps.push(item);
@@ -2238,34 +2522,38 @@ function onKeyDown(event: KeyboardEvent): void {
     switch (event.key) {
       case "ArrowUp":
         event.preventDefault();
-        moveSidebarSelection(-1);
+        if (!sidebarVolumeControlLocked) {
+          moveSidebarSelection(-1);
+        }
         break;
       case "ArrowDown":
         event.preventDefault();
-        moveSidebarSelection(1);
+        if (!sidebarVolumeControlLocked) {
+          moveSidebarSelection(1);
+        }
         break;
       case "ArrowLeft":
         event.preventDefault();
-        if (isVolumeSliderSelected()) {
+        if (sidebarFocusZone === "expansion" && isVolumeSliderSelected() && sidebarVolumeControlLocked) {
           if (nudgeUiVolume(-5)) {
             playUiSound("move");
             if (statusEl) {
               statusEl.textContent = `UI volume: ${uiVolumePercent}%`;
             }
           }
-        } else {
-          closeSettingsSidebar();
         }
         break;
       case "ArrowRight":
         event.preventDefault();
-        if (isVolumeSliderSelected()) {
+        if (sidebarFocusZone === "expansion" && isVolumeSliderSelected() && sidebarVolumeControlLocked) {
           if (nudgeUiVolume(5)) {
             playUiSound("move");
             if (statusEl) {
               statusEl.textContent = `UI volume: ${uiVolumePercent}%`;
             }
           }
+        } else if (sidebarFocusZone === "expansion") {
+          moveSidebarFocusToZone("main");
         }
         break;
       case "Enter":
@@ -2281,7 +2569,13 @@ function onKeyDown(event: KeyboardEvent): void {
       case "Escape":
       case "Backspace":
         event.preventDefault();
-        closeSettingsSidebar();
+        if (sidebarVolumeControlLocked) {
+          setSidebarVolumeControlLocked(false);
+        } else if (sidebarFocusZone === "expansion") {
+          moveSidebarFocusToZone("main");
+        } else {
+          closeSettingsSidebar();
+        }
         break;
       default:
         break;
@@ -2642,17 +2936,19 @@ function pollGamepad(): void {
         if (directionKey === lastDirection) {
           markFastNavigationWindow();
         }
-        if (dy !== 0) {
-          moveSidebarSelection(dy > 0 ? 1 : -1);
-        } else if (dx !== 0 && isVolumeSliderSelected()) {
-          if (nudgeUiVolume(dx > 0 ? 5 : -5)) {
+        if (sidebarVolumeControlLocked && isVolumeSliderSelected()) {
+          if (dx !== 0 && nudgeUiVolume(dx > 0 ? 5 : -5)) {
             playUiSound("move");
             if (statusEl) {
               statusEl.textContent = `UI volume: ${uiVolumePercent}%`;
             }
           }
-        } else if (dx < 0) {
-          closeSettingsSidebar();
+        } else if (dy !== 0) {
+          moveSidebarSelection(dy > 0 ? 1 : -1);
+        } else if (dx > 0 && sidebarFocusZone === "expansion" && !isVolumeSliderSelected()) {
+          moveSidebarFocusToZone("main");
+        } else if (dx > 0 && sidebarFocusZone === "expansion" && isVolumeSliderSelected() && !sidebarVolumeControlLocked) {
+          moveSidebarFocusToZone("main");
         }
         nextMoveAt = now + (directionKey !== lastDirection ? 300 : 180);
       }
@@ -2668,13 +2964,25 @@ function pollGamepad(): void {
 
       const backPressed = Boolean(pad.buttons[1]?.pressed);
       if (backPressed && !previousBackPressed) {
-        closeSettingsSidebar();
+        if (sidebarVolumeControlLocked) {
+          setSidebarVolumeControlLocked(false);
+        } else if (sidebarFocusZone === "expansion") {
+          moveSidebarFocusToZone("main");
+        } else {
+          closeSettingsSidebar();
+        }
       }
       previousBackPressed = backPressed;
 
       const startPressed = Boolean(pad.buttons[9]?.pressed);
       if (startPressed && !previousStartPressed) {
-        closeSettingsSidebar();
+        if (sidebarVolumeControlLocked) {
+          setSidebarVolumeControlLocked(false);
+        } else if (sidebarFocusZone === "expansion") {
+          moveSidebarFocusToZone("main");
+        } else {
+          closeSettingsSidebar();
+        }
       }
       previousStartPressed = startPressed;
       window.requestAnimationFrame(pollGamepad);
@@ -2791,6 +3099,7 @@ window.addEventListener("DOMContentLoaded", () => {
   appTitleEl = document.querySelector(".top-bar h1");
   gridEl = document.querySelector("#grid");
   statusEl = document.querySelector("#status");
+  usageTimeEl = document.querySelector("#usage-time");
   settingsButtonEl = document.querySelector("#settings-button");
   sidebarOverlayEl = document.querySelector("#sidebar-overlay");
   menuAddAppEl = document.querySelector("#menu-add-app");
@@ -2801,9 +3110,13 @@ window.addEventListener("DOMContentLoaded", () => {
   menuAspectEl = document.querySelector("#menu-aspect");
   menuRebuildImagesEl = document.querySelector("#menu-rebuild-images");
   menuCloseEl = document.querySelector("#menu-close");
+  menuRestartSystemEl = document.querySelector("#menu-restart-system");
+  menuShutdownSystemEl = document.querySelector("#menu-shutdown-system");
   menuVolumeSliderEl = document.querySelector("#menu-volume-slider");
   menuVolumeValueEl = document.querySelector("#menu-volume-value");
-  sidebarItems = Array.from(document.querySelectorAll<HTMLElement>(".sidebar-nav-item"));
+  sidebarMainItems = Array.from(document.querySelectorAll<HTMLButtonElement>(".sidebar-main-item"));
+  sidebarExpansionPanels = Array.from(document.querySelectorAll<HTMLElement>(".sidebar-expansion-panel"));
+  sidebarExpansionItems = Array.from(document.querySelectorAll<HTMLElement>(".sidebar-expansion-item"));
   addDialogEl = document.querySelector("#add-app-dialog");
   addFormEl = document.querySelector("#add-app-form");
   appNameInputEl = document.querySelector("#app-name");
@@ -2854,6 +3167,7 @@ window.addEventListener("DOMContentLoaded", () => {
   uiVolumePercent = loadUiVolumePercent();
   applyAppTitle(loadAppTitle(), false);
   applyUiVolumePercent(uiVolumePercent, false);
+  updateUsageTimeDisplay();
   if (gridEl) {
     gridEl.classList.toggle("view-grid", viewMode === "grid");
     gridEl.classList.toggle("view-carousel", viewMode === "carousel");
@@ -2907,6 +3221,16 @@ window.addEventListener("DOMContentLoaded", () => {
     closeSettingsSidebar();
   });
 
+  menuRestartSystemEl?.addEventListener("click", () => {
+    closeSettingsSidebar();
+    void restartSystem();
+  });
+
+  menuShutdownSystemEl?.addEventListener("click", () => {
+    closeSettingsSidebar();
+    void shutdownSystem();
+  });
+
   bulkSelectAllButtonEl?.addEventListener("click", () => {
     selectAllForBulkDelete();
   });
@@ -2923,14 +3247,50 @@ window.addEventListener("DOMContentLoaded", () => {
     closeBulkDeleteDialog();
   });
 
-  sidebarItems.forEach((item, index) => {
+  sidebarMainItems.forEach((item, index) => {
+    item.addEventListener("click", () => {
+      selectedSidebarMainIndex = index;
+      const key = toSidebarMenuKey(item.dataset.expansionKey);
+      setActiveSidebarMenu(key);
+      sidebarFocusZone = "expansion";
+      selectedSidebarExpansionIndex = 0;
+      applySidebarSelection();
+      playUiSound("select");
+    });
+
     item.addEventListener("mouseenter", () => {
-      selectedSidebarIndex = index;
+      selectedSidebarMainIndex = index;
+      if (activeSidebarMenuKey !== null) {
+        setActiveSidebarMenu(null);
+        selectedSidebarExpansionIndex = 0;
+      }
       applySidebarSelection();
     });
 
     item.addEventListener("focus", () => {
-      selectedSidebarIndex = index;
+      selectedSidebarMainIndex = index;
+      sidebarFocusZone = "main";
+      if (activeSidebarMenuKey !== null) {
+        setActiveSidebarMenu(null);
+        selectedSidebarExpansionIndex = 0;
+      }
+      applySidebarSelection();
+    });
+  });
+
+  sidebarExpansionItems.forEach((item) => {
+    item.addEventListener("mouseenter", () => {
+      refreshActiveSidebarExpansionItems();
+      const nextIndex = sidebarExpansionItems.indexOf(item);
+      selectedSidebarExpansionIndex = nextIndex >= 0 ? nextIndex : 0;
+      applySidebarSelection();
+    });
+
+    item.addEventListener("focus", () => {
+      refreshActiveSidebarExpansionItems();
+      const nextIndex = sidebarExpansionItems.indexOf(item);
+      selectedSidebarExpansionIndex = nextIndex >= 0 ? nextIndex : 0;
+      sidebarFocusZone = "expansion";
       applySidebarSelection();
     });
   });

@@ -22,6 +22,12 @@ struct ShortcutResolutionResult {
     arguments: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LaunchAppResult {
+    pid: u32,
+}
+
 #[tauri::command]
 fn resolve_shortcut(path: String) -> Result<ShortcutResolutionResult, String> {
     let trimmed = path.trim();
@@ -70,7 +76,7 @@ $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcutPath)
 }
 
 #[tauri::command]
-fn launch_app(path: String, args: Option<String>) -> Result<(), String> {
+fn launch_app(path: String, args: Option<String>) -> Result<LaunchAppResult, String> {
     let trimmed_path = path.trim();
     if trimmed_path.is_empty() {
         return Err("path is empty".to_string());
@@ -82,13 +88,15 @@ $launchPath = $env:LAUNCH_PATH
 $launchArgs = $env:LAUNCH_ARGS
 
 if ([string]::IsNullOrWhiteSpace($launchArgs)) {
-  Start-Process -FilePath $launchPath
+  $process = Start-Process -FilePath $launchPath -PassThru
 } else {
-  Start-Process -FilePath $launchPath -ArgumentList $launchArgs
+  $process = Start-Process -FilePath $launchPath -ArgumentList $launchArgs -PassThru
 }
+
+$process.Id
 "#;
 
-    std::process::Command::new("powershell")
+    let output = std::process::Command::new("powershell")
         .args([
             "-NoProfile",
             "-ExecutionPolicy",
@@ -98,9 +106,48 @@ if ([string]::IsNullOrWhiteSpace($launchArgs)) {
         ])
         .env("LAUNCH_PATH", trimmed_path)
         .env("LAUNCH_ARGS", trimmed_args)
-        .spawn()
-        .map(|_| ())
-        .map_err(|error| format!("failed to launch app: {error}"))
+        .output()
+        .map_err(|error| format!("failed to launch app: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        return Err(format!("failed to launch app: {stderr}"));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    let pid = stdout
+        .lines()
+        .last()
+        .and_then(|line| line.trim().parse::<u32>().ok())
+        .ok_or_else(|| "launch command did not return process id".to_string())?;
+
+    Ok(LaunchAppResult { pid })
+}
+
+#[tauri::command]
+fn is_process_running(pid: u32) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let filter = format!("PID eq {pid}");
+        let output = std::process::Command::new("tasklist")
+            .args(["/FI", &filter, "/FO", "CSV", "/NH"])
+            .output()
+            .map_err(|error| format!("failed to check process status: {error}"))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(format!("tasklist failed: {stderr}"));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let lowered = stdout.to_ascii_lowercase();
+        Ok(!lowered.contains("no tasks are running") && !stdout.trim().is_empty())
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("process checks are only supported on Windows in this build".to_string())
+    }
 }
 
 #[tauri::command]
@@ -143,6 +190,40 @@ fn write_library_export_file(path: String, content: String) -> Result<(), String
     std::fs::write(trimmed, content).map_err(|error| format!("failed to write export file: {error}"))
 }
 
+#[tauri::command]
+fn restart_system() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("shutdown")
+            .args(["/r", "/t", "0"])
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("failed to restart system: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("restart is only supported on Windows in this build".to_string())
+    }
+}
+
+#[tauri::command]
+fn shutdown_system() -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("shutdown")
+            .args(["/s", "/t", "0"])
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("failed to shut down system: {error}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Err("shutdown is only supported on Windows in this build".to_string())
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -152,9 +233,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             launch_app,
+            is_process_running,
             resolve_shortcut,
             load_cover_data_url,
-            write_library_export_file
+            write_library_export_file,
+            restart_system,
+            shutdown_system
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
