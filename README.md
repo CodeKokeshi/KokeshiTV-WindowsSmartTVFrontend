@@ -1,16 +1,12 @@
-# WinDeckTV-WindowsSmartTVFrontend
+# KokeshiTV-WindowsSmartTVFrontend
 
-A Windows desktop frontend that turns a mini PC or regular PC into a Smart TV style launcher.
+KokeTV is a Windows desktop frontend that turns a mini PC or regular PC into a Smart TV style launcher.
 
 This project is focused on a controller-friendly, fullscreen home screen for launching apps, media tools, browser shortcuts, and emulators on Windows.
 
 ## Current Status
 
-This project is in active development.
-
-- No official release build is published yet.
-- Build and run from source for now.
-- Expect occasional UI or behavior changes as features evolve.
+This project is in active development and release artifacts can be built from source.
 
 ## Features
 
@@ -106,8 +102,7 @@ cargo check --manifest-path src-tauri/Cargo.toml
 - Exported library bundles are intended to help migration/backup.
 - Import flow and packaged releases are planned improvements.
 
-## Disclaimer
+## App Name
 
-No release binaries are provided at this time.
-
-If you use this project now, you are using a development build from source.
+- Product/App name: KokeTV
+- Repository name: KokeshiTV-WindowsSmartTVFrontend
